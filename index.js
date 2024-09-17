@@ -1,197 +1,218 @@
+// Import necessary modules
 const express = require('express');
 const bodyParser = require('body-parser');
-const app = express();
+const { Pool } = require('pg');
 
+// Initialize Express app
+const app = express();
 app.use(bodyParser.json());
 
-// In-memory storage
-let actors = [];
-let movies = [];
-let nextActorId = 1;
-let nextMovieId = 1;
+// PostgreSQL pool for database connection
+const pool = new Pool({
+  user: 'postgres',     // Update with your PostgreSQL username
+  host: 'localhost',
+  database: 'movies-db', // Update with your database name
+  password: 'postgres', // Update with your password
+  port: 5432,
+});
 
-// Helper function to validate date
-const isValidDate = (dateStr) => {
-    const date = new Date(dateStr);
-    return date instanceof Date && !isNaN(date.getTime());
-};
-
-const isFutureDate = (dateStr) => {
-    const now = new Date();
-    const inputDate = new Date(dateStr);
-    return inputDate > now;
-};
+// Helper function to check if date is in the future
+function isFutureDate(date) {
+  const today = new Date();
+  return new Date(date) > today;
+}
 
 // CRUD for Actors
 
-// Create an Actor
-app.post('/actors', (req, res) => {
-    const { firstName, lastName, dateOfBirth } = req.body;
-    
-    if (!firstName || !lastName || !dateOfBirth) {
-        return res.status(400).json({ message: "FirstName, LastName, and DateOfBirth are required" });
-    }
-
-    if (!isValidDate(dateOfBirth) || isFutureDate(dateOfBirth)) {
-        return res.status(400).json({ message: "Invalid Date of Birth. Date cannot be in the future." });
-    }
-
-    const newActor = {
-        id: nextActorId++,
-        firstName,
-        lastName,
-        dateOfBirth
-    };
-
-    actors.push(newActor);
-    res.status(201).json(newActor);
+// Get all actors
+app.get('/actors', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM actors');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Get all Actors
-app.get('/actors', (req, res) => {
-    res.json(actors);
+// Get an actor by ID
+app.get('/actors/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM actors WHERE id = $1', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Actor not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Get an Actor by ID
-app.get('/actors/:id', (req, res) => {
-    const actorId = parseInt(req.params.id);
-    const actor = actors.find(a => a.id === actorId);
+// Create a new actor
+app.post('/actors', async (req, res) => {
+  const { firstName, lastName, dateOfBirth } = req.body;
 
-    if (!actor) {
-        return res.status(404).json({ message: "Actor not found" });
-    }
+  if (isFutureDate(dateOfBirth)) {
+    return res.status(400).json({ error: 'Date of birth cannot be in the future' });
+  }
 
-    res.json(actor);
+  try {
+    const result = await pool.query(
+      'INSERT INTO actors (first_name, last_name, date_of_birth) VALUES ($1, $2, $3) RETURNING *',
+      [firstName, lastName, dateOfBirth]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Update an Actor
-app.put('/actors/:id', (req, res) => {
-    const actorId = parseInt(req.params.id);
-    const actor = actors.find(a => a.id === actorId);
+// Update an actor
+app.put('/actors/:id', async (req, res) => {
+  const { id } = req.params;
+  const { firstName, lastName, dateOfBirth } = req.body;
 
-    if (!actor) {
-        return res.status(404).json({ message: "Actor not found" });
+  if (isFutureDate(dateOfBirth)) {
+    return res.status(400).json({ error: 'Date of birth cannot be in the future' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE actors SET first_name = $1, last_name = $2, date_of_birth = $3 WHERE id = $4 RETURNING *',
+      [firstName, lastName, dateOfBirth, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Actor not found' });
     }
 
-    const { firstName, lastName, dateOfBirth } = req.body;
-
-    if (dateOfBirth && (isFutureDate(dateOfBirth) || !isValidDate(dateOfBirth))) {
-        return res.status(400).json({ message: "Invalid Date of Birth. Date cannot be in the future." });
-    }
-
-    actor.firstName = firstName || actor.firstName;
-    actor.lastName = lastName || actor.lastName;
-    actor.dateOfBirth = dateOfBirth || actor.dateOfBirth;
-
-    res.json(actor);
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Delete an Actor
-app.delete('/actors/:id', (req, res) => {
-    const actorId = parseInt(req.params.id);
-    const actorIndex = actors.findIndex(a => a.id === actorId);
+// Delete an actor
+app.delete('/actors/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM actors WHERE id = $1 RETURNING *', [id]);
 
-    if (actorIndex === -1) {
-        return res.status(404).json({ message: "Actor not found" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Actor not found' });
     }
 
-    // Remove the actor from the array
-    actors.splice(actorIndex, 1);
-    res.status(204).send();
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // CRUD for Movies
 
-// Create a Movie
-app.post('/movies', (req, res) => {
-    const { title, creationDate, actorId } = req.body;
-
-    if (!title || !creationDate || !actorId) {
-        return res.status(400).json({ message: "Title, CreationDate, and ActorId are required" });
-    }
-
-    if (!isValidDate(creationDate)) {
-        return res.status(400).json({ message: "Invalid Creation Date" });
-    }
-
-    const actor = actors.find(a => a.id === actorId);
-    if (!actor) {
-        return res.status(404).json({ message: "Actor not found" });
-    }
-
-    const newMovie = {
-        id: nextMovieId++,
-        title,
-        creationDate,
-        actor
-    };
-
-    movies.push(newMovie);
-    res.status(201).json(newMovie);
+// Get all movies
+app.get('/movies', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM movies');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Get all Movies
-app.get('/movies', (req, res) => {
-    res.json(movies);
+// Get a movie by ID
+app.get('/movies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM movies WHERE id = $1', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Movie not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Get a Movie by ID
-app.get('/movies/:id', (req, res) => {
-    const movieId = parseInt(req.params.id);
-    const movie = movies.find(m => m.id === movieId);
+// Create a new movie
+app.post('/movies', async (req, res) => {
+  const { title, creationDate, actorId } = req.body;
 
-    if (!movie) {
-        return res.status(404).json({ message: "Movie not found" });
+  if (!actorId) {
+    return res.status(400).json({ error: 'Actor ID is required' });
+  }
+
+  try {
+    // Check if actor exists
+    const actorResult = await pool.query('SELECT * FROM actors WHERE id = $1', [actorId]);
+
+    if (actorResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Actor not found' });
     }
 
-    res.json(movie);
+    // Insert the movie
+    const result = await pool.query(
+      'INSERT INTO movies (title, creation_date, actor_id) VALUES ($1, $2, $3) RETURNING *',
+      [title, creationDate, actorId]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Update a Movie
-app.put('/movies/:id', (req, res) => {
-    const movieId = parseInt(req.params.id);
-    const movie = movies.find(m => m.id === movieId);
+// Update a movie
+app.put('/movies/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, creationDate, actorId } = req.body;
 
-    if (!movie) {
-        return res.status(404).json({ message: "Movie not found" });
+  if (actorId) {
+    // Check if actor exists
+    const actorResult = await pool.query('SELECT * FROM actors WHERE id = $1', [actorId]);
+
+    if (actorResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Actor not found' });
+    }
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE movies SET title = $1, creation_date = $2, actor_id = $3 WHERE id = $4 RETURNING *',
+      [title, creationDate, actorId, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Movie not found' });
     }
 
-    const { title, creationDate, actorId } = req.body;
-
-    if (creationDate && !isValidDate(creationDate)) {
-        return res.status(400).json({ message: "Invalid Creation Date" });
-    }
-
-    if (actorId) {
-        const actor = actors.find(a => a.id === actorId);
-        if (!actor) {
-            return res.status(404).json({ message: "Actor not found" });
-        }
-        movie.actor = actor;
-    }
-
-    movie.title = title || movie.title;
-    movie.creationDate = creationDate || movie.creationDate;
-
-    res.json(movie);
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Delete a Movie
-app.delete('/movies/:id', (req, res) => {
-    const movieId = parseInt(req.params.id);
-    const movieIndex = movies.findIndex(m => m.id === movieId);
+// Delete a movie
+app.delete('/movies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM movies WHERE id = $1 RETURNING *', [id]);
 
-    if (movieIndex === -1) {
-        return res.status(404).json({ message: "Movie not found" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Movie not found' });
     }
 
-    // Remove the movie from the array
-    movies.splice(movieIndex, 1);
-    res.status(204).send();
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Start the server
+// Start server
 const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
