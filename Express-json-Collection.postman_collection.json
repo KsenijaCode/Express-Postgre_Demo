@@ -1,0 +1,29 @@
+{
+	"info": {
+		"_postman_id": "db9cb0ec-5956-49c4-aee1-ab15cf31a2a0",
+		"name": "Express-json-Collection",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "38013027"
+	},
+	"item": [
+		{
+			"name": "Get all actors",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/actors",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"actors"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

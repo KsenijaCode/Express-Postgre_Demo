@@ -58,15 +58,11 @@ app.post('/actors', async (req, res) => {
     return res.status(400).json({ error: 'Date of birth cannot be in the future' });
   }
 
-  try {
     const result = await pool.query(
       'INSERT INTO actors (first_name, last_name, date_of_birth) VALUES ($1, $2, $3) RETURNING *',
       [firstName, lastName, dateOfBirth]
     );
     res.status(201).json(result.rows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 // Update an actor
